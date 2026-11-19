@@ -285,7 +285,6 @@ namespace dec {
             processed += n;
             if (progressCb) progressCb(processed, size);
         }
-        if (progressCb) progressCb(size, size);
 
         Key32 mac = hmac.digest();
         out.write((const char*)mac.data(), kMacLen);
@@ -376,7 +375,6 @@ namespace dec {
                              processed += toRead;
                              if (progressCb) progressCb(processed, cipherLen);
                          }
-                         if (progressCb) progressCb(cipherLen, cipherLen);
 
                          out.flush();
                          if (!out) { out.close(); fs::remove(tmp); return DecError::IoError; }
