@@ -18,6 +18,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <conio.h>
+#include <io.h>
 #else
 #include <termios.h>
 #include <unistd.h>
@@ -196,33 +197,98 @@ static std::string readLine(const std::string &prompt, bool hide = false)
     return buf;
 }
 
-static const char *kVersion = "2.2.2";
+static const char *kVersion = "2.2.3";
 static int doEncrypt(const std::vector<std::string> &pos, bool force, bool remove_source);
 static int doWizard();
 
 // ---------------- 进度条 ----------------
-static void printProgress(const std::string& action, uint64_t current, uint64_t total) {
+// 是否是交互式终端：重定向到文件/管道时不画进度条，避免日志里塞满 \r
+static bool stdoutIsTty()
+{
+#ifdef _WIN32
+    return _isatty(_fileno(stdout)) != 0;
+#else
+    return isatty(STDOUT_FILENO) != 0;
+#endif
+}
+
+static const char *phaseText(ProgressPhase phase)
+{
+    switch (phase) {
+        case ProgressPhase::Pack:    return use_zh ? "正在打包" : "Packing";
+        case ProgressPhase::Encrypt: return use_zh ? "正在加密" : "Encrypting";
+        case ProgressPhase::Verify:  return use_zh ? "正在校验" : "Verifying";
+        case ProgressPhase::Decrypt: return use_zh ? "正在解密" : "Decrypting";
+        case ProgressPhase::Unpack:  return use_zh ? "正在解包" : "Unpacking";
+    }
+    return "";
+}
+
+// 非 TTY 环境下的降级输出：每个阶段只打一行结果
+static void printProgressPlain(ProgressPhase phase, uint64_t total)
+{
+    // 校验阶段可能以“校验失败”收尾，所以不用“完成”字样
+    if (phase == ProgressPhase::Verify) {
+        std::cout << "[" << phaseText(phase) << "] " << total
+                  << (use_zh ? " 字节已读取\n" : " bytes checked\n");
+        return;
+    }
+    std::cout << "[" << phaseText(phase) << "] "
+              << (use_zh ? "完成 " : "done ") << total << (use_zh ? " 字节\n" : " bytes\n");
+}
+
+// 上一条进度条已绘制到的百分比（-1 表示尚未绘制）
+static int& lastPercentRef()
+{
+    static int v = -1;
+    return v;
+}
+static int  lastPercentGet() { return lastPercentRef(); }
+static void lastPercentSet(int v) { lastPercentRef() = v; }
+static void lastPercentReset() { lastPercentRef() = -1; }
+
+static void progressCallback(ProgressPhase phase, uint64_t current, uint64_t total)
+{
+    static ProgressPhase lastPhase = ProgressPhase::Encrypt;
+    static bool initialized = false;
+    static bool lineOpen = false;   // 当前进度行是否还没换行（用于阶段切换时收尾）
+
+    if (!stdoutIsTty()) {
+        // 非终端：只在阶段结束时输出一行
+        if (current >= total) printProgressPlain(phase, total);
+        return;
+    }
+
+    // 阶段切换：上一阶段的进度行若还停在屏幕上，先换行收尾
+    if (initialized && phase != lastPhase) {
+        if (lineOpen) { std::cout << "\n"; lineOpen = false; }
+        lastPercentReset();
+    }
+    lastPhase = phase;
+    initialized = true;
+
     if (total == 0) return;
     int percent = (int)((double)current / total * 100.0);
-    static int last_percent = -1;
 
-    if (percent == last_percent && current != total) return;
-    last_percent = percent;
+    if (percent == lastPercentGet() && current != total) return;
+    lastPercentSet(percent);
 
     int barWidth = 30;
     int pos = (int)(barWidth * (percent / 100.0));
 
-    std::cout << "\r" << action << " [" << std::setw(3) << percent << "%] [";
+    std::cout << "\r" << phaseText(phase) << " [" << std::setw(3) << percent << "%] [";
     for (int i = 0; i < barWidth; ++i) {
         if (i < pos) std::cout << "=";
         else if (i == pos) std::cout << ">";
         else std::cout << " ";
     }
     std::cout << "] " << std::flush;
+    lineOpen = true;
 
     if (current == total) {
         std::cout << std::endl;
-        last_percent = -1;
+        lineOpen = false;
+        lastPercentSet(-1);
     }
 }
 
@@ -486,20 +552,15 @@ static int doEncrypt(const std::vector<std::string> &pos, bool force, bool remov
 
     // 如果是目录，先打包成临时文件
     if (fs::is_directory(path, ec)) {
-        std::cout << T("正在打包文件夹...\n", "Packing directory...\n");
         fs::path tmpArchive = fs::temp_directory_path() / (safeName + ".tmp");
 
         std::string err;
-        if (!packDirectory(path, tmpArchive, err)) {
+        if (!packDirectory(path, tmpArchive, err, progressCallback)) {
             std::cerr << T("[失败] 打包目录出错: ", "[Fail] Packing directory failed: ") << err << "\n";
             return 1;
         }
 
-        std::cout << T("正在加密归档...\n", "Encrypting archive...\n");
-        // 调用加密，传入进度条回调
-        bool ok = encryptFile(tmpArchive, dst, password, remarks, true, err, [](uint64_t cur, uint64_t tot){
-            printProgress(use_zh ? "正在加密" : "Encrypting", cur, tot);
-        });
+        bool ok = encryptFile(tmpArchive, dst, password, remarks, true, err, progressCallback);
         fs::remove(tmpArchive);
 
         if (ok) {
@@ -519,9 +580,7 @@ static int doEncrypt(const std::vector<std::string> &pos, bool force, bool remov
         // 普通文件
         std::string err;
         // 调用加密，传入进度条回调
-        if (encryptFile(path, dst, password, remarks, false, err, [](uint64_t cur, uint64_t tot){
-            printProgress(use_zh ? "正在加密" : "Encrypting", cur, tot);
-        })) {
+        if (encryptFile(path, dst, password, remarks, false, err, progressCallback)) {
             std::cout << T("[完成] ", "[Done] ") << path.string() << " -> " << dst.string() << "\n";
             if (remove_source) {
                 std::error_code rm_ec;
@@ -584,18 +643,15 @@ static int doDecrypt(const std::vector<std::string> &pos, bool force, const std:
         }
 
         fs::path tmpArchive = fs::temp_directory_path() / (origName + ".dec_tmp");
-        e = decryptBody(src, h, tmpArchive, [](uint64_t cur, uint64_t tot){
-            printProgress(use_zh ? "正在解密" : "Decrypting", cur, tot);
-        });
+        e = decryptBody(src, h, tmpArchive, progressCallback);
         if (e != DecError::Ok) {
             std::cerr << T("错误: ", "Error: ") << decErrorText(e) << "\n";
             fs::remove(tmpArchive);
             return 1;
         }
 
-        std::cout << T("正在解包...\n", "Unpacking...\n");
         std::string err;
-        if (!unpackArchive(tmpArchive, dstDir, err)) {
+        if (!unpackArchive(tmpArchive, dstDir, err, progressCallback)) {
             std::cerr << T("错误: 解包失败: ", "Error: Unpacking failed: ") << err << "\n";
             fs::remove(tmpArchive);
             return 1;
@@ -637,9 +693,7 @@ static int doDecrypt(const std::vector<std::string> &pos, bool force, const std:
             return 1;
         }
 
-        e = decryptBody(src, h, dst, [](uint64_t cur, uint64_t tot){
-            printProgress(use_zh ? "正在解密" : "Decrypting", cur, tot);
-        });
+        e = decryptBody(src, h, dst, progressCallback);
         if (e != DecError::Ok) {
             std::cerr << T("错误: ", "Error: ") << decErrorText(e) << "\n";
             return 1;

@@ -105,7 +105,29 @@ namespace dec {
     }
 
     // ---------------- 归档功能实现 ----------------
-    static void addToArchive(std::ofstream& out, const fs::path& base, const fs::path& p) {
+    // 统计目录下所有普通文件的字节总数，用于打包进度
+    static uint64_t dirBytes(const fs::path& p) {
+        std::error_code ec;
+        uint64_t total = 0;
+        if (fs::is_regular_file(p, ec)) {
+            uintmax_t s = fs::file_size(p, ec);
+            return ec ? 0 : (uint64_t)s;
+        }
+        if (!fs::is_directory(p, ec)) return 0;
+        for (fs::recursive_directory_iterator it(p, fs::directory_options::skip_permission_denied, ec), end;
+             it != end; it.increment(ec)) {
+            if (ec) { ec.clear(); continue; }
+            std::error_code fe;
+            if (it->is_regular_file(fe)) {
+                uintmax_t s = it->file_size(fe);
+                if (!fe) total += (uint64_t)s;
+            }
+        }
+        return total;
+    }
+
+    static void addToArchive(std::ofstream& out, const fs::path& base, const fs::path& p,
+                             uint64_t& processed, uint64_t total, ProgressCb& progressCb) {
         std::string relPath = fs::relative(p, base).string();
         std::replace(relPath.begin(), relPath.end(), '\\', '/');
 
@@ -128,26 +150,35 @@ namespace dec {
                 out.write((char*)&size, 8);
 
                 std::ifstream in(p, std::ios::binary);
-                char buf[64 * 1024];
+                std::vector<char> buf(64 * 1024);
                 while (in) {
-                    in.read(buf, sizeof(buf));
-                    out.write(buf, in.gcount());
+                    in.read(buf.data(), (std::streamsize)buf.size());
+                    std::streamsize n = in.gcount();
+                    if (n <= 0) break;
+                    out.write(buf.data(), n);
+
+                    // 打包进度
+                    processed += (uint64_t)n;
+                    if (progressCb) progressCb(ProgressPhase::Pack, processed, total);
                 }
             }
         }
 
         if (fs::is_directory(p)) {
             for (auto& entry : fs::directory_iterator(p)) {
-                addToArchive(out, base, entry.path());
+                addToArchive(out, base, entry.path(), processed, total, progressCb);
             }
         }
     }
 
-    bool packDirectory(const fs::path& srcDir, const fs::path& outArchive, std::string& err) {
+    bool packDirectory(const fs::path& srcDir, const fs::path& outArchive, std::string& err,
+                       ProgressCb progressCb) {
         std::ofstream out(outArchive, std::ios::binary);
         if (!out) { err = "无法创建临时归档文件"; return false; }
         try {
-            addToArchive(out, srcDir, srcDir);
+            uint64_t total = dirBytes(srcDir);
+            uint64_t processed = 0;
+            addToArchive(out, srcDir, srcDir, processed, total, progressCb);
         } catch (const std::exception& e) {
             err = "打包异常: " + std::string(e.what());
             return false;
@@ -155,9 +186,14 @@ namespace dec {
         return true;
     }
 
-    bool unpackArchive(const fs::path& archiveFile, const fs::path& outDir, std::string& err) {
+    bool unpackArchive(const fs::path& archiveFile, const fs::path& outDir, std::string& err,
+                       ProgressCb progressCb) {
         std::ifstream in(archiveFile, std::ios::binary);
         if (!in) { err = "无法打开归档文件"; return false; }
+
+        in.seekg(0, std::ios::end);
+        uint64_t archiveSize = (uint64_t)in.tellg();
+        in.seekg(0, std::ios::beg);
 
         fs::create_directories(outDir);
 
@@ -187,12 +223,21 @@ namespace dec {
                 if (!out) { err = "无法写入文件: " + dest.string(); return false; }
 
                 uint64_t remain = size;
-                char buf[64 * 1024];
+                std::vector<char> buf(64 * 1024);
                 while (remain > 0) {
-                    size_t toRead = (size_t)std::min<uint64_t>(remain, sizeof(buf));
-                    in.read(buf, toRead);
-                    out.write(buf, toRead);
-                    remain -= toRead;
+                    size_t toRead = (size_t)std::min<uint64_t>(remain, buf.size());
+                    in.read(buf.data(), (std::streamsize)toRead);
+                    std::streamsize n = in.gcount();
+                    if (n <= 0) break;
+                    out.write(buf.data(), n);
+                    remain -= (uint64_t)n;
+
+                    // 解包进度（按整个归档文件的读取位置计算）
+                    if (progressCb) {
+                        std::streampos pos = in.tellg();
+                        if (pos != std::streampos(-1))
+                            progressCb(ProgressPhase::Unpack, (uint64_t)pos, archiveSize);
+                    }
                 }
             }
         }
@@ -203,7 +248,7 @@ namespace dec {
     bool encryptFile(const fs::path& src, const fs::path& dst,
                      const std::string& password, const std::string& remarks,
                      bool is_archive, std::string& err,
-                     std::function<void(uint64_t current, uint64_t total)> progressCb) {
+                     ProgressCb progressCb) {
         std::error_code ec;
         uintmax_t size = fs::file_size(src, ec);
         if (ec) { err = "无法读取源文件大小: " + ec.message(); return false; }
@@ -283,7 +328,7 @@ namespace dec {
 
             // 进度回调
             processed += n;
-            if (progressCb) progressCb(processed, size);
+            if (progressCb) progressCb(ProgressPhase::Encrypt, processed, size);
         }
 
         Key32 mac = hmac.digest();
@@ -303,7 +348,7 @@ namespace dec {
                      }
 
                      DecError decryptBody(const fs::path& src, const HeaderInfo& h, const fs::path& dst,
-                                          std::function<void(uint64_t current, uint64_t total)> progressCb) {
+                                          ProgressCb progressCb) {
                          std::string bnStr = h.json.getString("body_nonce");
                          Bytes bNonce;
                          if (!base64Decode(bnStr, bNonce) || bNonce.size() != 12) return DecError::BadHeader;
@@ -332,11 +377,16 @@ namespace dec {
 
                              std::vector<char> buf(64 * 1024);
                              uint64_t remain = cipherLen;
+                             uint64_t verified = 0;
                              while (remain > 0) {
                                  size_t toRead = (size_t)std::min<uint64_t>(remain, buf.size());
                                  in.read(buf.data(), toRead);
                                  hmac.update(buf.data(), toRead);
                                  remain -= toRead;
+
+                                 // 校验进度
+                                 verified += toRead;
+                                 if (progressCb) progressCb(ProgressPhase::Verify, verified, cipherLen);
                              }
 
                              uint8_t expectedMac[32];
@@ -373,7 +423,7 @@ namespace dec {
 
                              // 进度回调
                              processed += toRead;
-                             if (progressCb) progressCb(processed, cipherLen);
+                             if (progressCb) progressCb(ProgressPhase::Decrypt, processed, cipherLen);
                          }
 
                          out.flush();
