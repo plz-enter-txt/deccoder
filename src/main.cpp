@@ -31,7 +31,7 @@ using namespace dec;
 // =====================================================================
 // 国际化 (i18n) 支持
 // =====================================================================
-static bool use_zh = false;
+static bool &use_zh = dec::gUseZh;
 
 static std::string T(const std::string &zh, const std::string &en)
 {
@@ -197,7 +197,7 @@ static std::string readLine(const std::string &prompt, bool hide = false)
     return buf;
 }
 
-static const char *kVersion = "2.2.3";
+static const char *kVersion = "2.2.4";
 static int doEncrypt(const std::vector<std::string> &pos, bool force, bool remove_source);
 static int doWizard();
 

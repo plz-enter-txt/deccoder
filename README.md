@@ -1,4 +1,6 @@
-# deccoder v2.2.3
+# deccoder v2.2.4
+
+中文 | [English](README.en.md)
 
 一个轻量、单文件、跨平台的 C++ 命令行加密工具。加密后生成 `.dec` 文件，文件头部携带可读元信息（备注、源 IP、原始文件名、创建时间等），正文用 ChaCha20 流式加密，并附带防篡改认证。
 
@@ -186,6 +188,8 @@ deccoder -M ./report.docx.dec "mypass"       # 交互式
 
 ## 错误提示
 
+程序根据 `$LANG` / `$LC_ALL` 自动选择中文或英文，下表为中文界面的输出（英文界面见 [README.en.md](README.en.md)）。
+
 | 提示 | 含义 |
 |------|------|
 | `这不是一个DEC加密文件` | 文件头魔数不是 `DECF` |
@@ -193,7 +197,7 @@ deccoder -M ./report.docx.dec "mypass"       # 交互式
 | `此文件需要密码` | 文件头标记了需要密码，但未提供 |
 | `密码错误` | 密码不对（通过头部 `check` 字段校验） |
 | `文件已被篡改或损坏 (MAC 校验失败)` | 文件在传输中被截断、修改，或伪造的密文 |
-| `目标文件已存在` | 加 `-f` 覆盖 |
+| `目标已存在` / `目标文件已存在` | 加 `-f` 覆盖 |
 | `没有指定操作 (使用 -h 获取帮助)` | 未传入任何操作 |
 | `错误: 路径不存在: ...	` |输入的文件或文件夹路径找不到 |
 | `拒绝访问 / Permission denied	`  |权限不足（例如无权限写入目标目录，或读取受限文件） |
@@ -204,6 +208,7 @@ deccoder -M ./report.docx.dec "mypass"       # 交互式
 deccoder/
 ├── CMakeLists.txt
 ├── README.md
+├── README.en.md
 └── src/
     ├── main.cpp        入口与子命令
     ├── crypto.h/.cpp   SHA-256、ChaCha20、HMAC-SHA256、Base64、KDF

@@ -15,16 +15,31 @@ namespace dec {
 
     const char* decErrorText(DecError e) {
         switch (e) {
-            case DecError::Ok:            return "成功";
-            case DecError::NotDecFile:    return "这不是一个DEC加密文件";
-            case DecError::VersionTooNew: return "dec版本大于当前decoder版本：此版本不支持这个Dec文件";
-            case DecError::NeedPassword:  return "此文件需要密码";
-            case DecError::WrongPassword: return "密码错误";
-            case DecError::BadHeader:     return "DEC 文件头已损坏";
-            case DecError::IoError:       return "文件读写错误";
-            case DecError::IntegrityFailed:return "文件已被篡改或损坏 (MAC 校验失败)";
+            case DecError::Ok:
+                return tr("成功", "Success");
+            case DecError::NotDecFile:
+                return tr("这不是一个DEC加密文件",
+                          "This is not a DEC encrypted file");
+            case DecError::VersionTooNew:
+                return tr("dec版本大于当前decoder版本：此版本不支持这个Dec文件",
+                          "The .dec version is newer than this deccoder; this version cannot open it");
+            case DecError::NeedPassword:
+                return tr("此文件需要密码",
+                          "This file requires a password");
+            case DecError::WrongPassword:
+                return tr("密码错误",
+                          "Wrong password");
+            case DecError::BadHeader:
+                return tr("DEC 文件头已损坏",
+                          "The DEC header is corrupted");
+            case DecError::IoError:
+                return tr("文件读写错误",
+                          "File I/O error");
+            case DecError::IntegrityFailed:
+                return tr("文件已被篡改或损坏 (MAC 校验失败)",
+                          "File has been tampered with or is corrupted (MAC verification failed)");
         }
-        return "未知错误";
+        return tr("未知错误", "Unknown error");
     }
 
     static Key32 bodyKey(const Key32& hkey) {
@@ -174,13 +189,13 @@ namespace dec {
     bool packDirectory(const fs::path& srcDir, const fs::path& outArchive, std::string& err,
                        ProgressCb progressCb) {
         std::ofstream out(outArchive, std::ios::binary);
-        if (!out) { err = "无法创建临时归档文件"; return false; }
+        if (!out) { err = tr("无法创建临时归档文件", "Cannot create temporary archive file"); return false; }
         try {
             uint64_t total = dirBytes(srcDir);
             uint64_t processed = 0;
             addToArchive(out, srcDir, srcDir, processed, total, progressCb);
         } catch (const std::exception& e) {
-            err = "打包异常: " + std::string(e.what());
+            err = tr("打包异常: ", "Packing failed: ") + std::string(e.what());
             return false;
         }
         return true;
@@ -189,7 +204,7 @@ namespace dec {
     bool unpackArchive(const fs::path& archiveFile, const fs::path& outDir, std::string& err,
                        ProgressCb progressCb) {
         std::ifstream in(archiveFile, std::ios::binary);
-        if (!in) { err = "无法打开归档文件"; return false; }
+        if (!in) { err = tr("无法打开归档文件", "Cannot open archive file"); return false; }
 
         in.seekg(0, std::ios::end);
         uint64_t archiveSize = (uint64_t)in.tellg();
@@ -220,7 +235,7 @@ namespace dec {
             } else if (type == 0) {
                 if (dest.has_parent_path()) fs::create_directories(dest.parent_path());
                 std::ofstream out(dest, std::ios::binary);
-                if (!out) { err = "无法写入文件: " + dest.string(); return false; }
+                if (!out) { err = tr("无法写入文件: ", "Cannot write file: ") + dest.string(); return false; }
 
                 uint64_t remain = size;
                 std::vector<char> buf(64 * 1024);
@@ -251,7 +266,7 @@ namespace dec {
                      ProgressCb progressCb) {
         std::error_code ec;
         uintmax_t size = fs::file_size(src, ec);
-        if (ec) { err = "无法读取源文件大小: " + ec.message(); return false; }
+        if (ec) { err = tr("无法读取源文件大小: ", "Cannot read source file size: ") + ec.message(); return false; }
 
         Bytes  salt = randomBytes(kSaltLen);
         Nonce12 hNonce = randomNonce();
@@ -294,7 +309,7 @@ namespace dec {
         fs::path tmp = dst;
         tmp += ".part";
         std::ofstream out(tmp, std::ios::binary);
-        if (!out) { err = "无法创建输出文件"; return false; }
+        if (!out) { err = tr("无法创建输出文件", "Cannot create output file"); return false; }
 
         uint8_t flags = kFlagHeaderEncrypted;
         if (!password.empty()) flags |= kFlagHasPassword;
@@ -314,7 +329,7 @@ namespace dec {
         ChaCha20 bc(bodyKey(key), bn, 1);
 
         std::ifstream in(src, std::ios::binary);
-        if (!in) { out.close(); fs::remove(tmp); err = "无法打开源文件"; return false; }
+        if (!in) { out.close(); fs::remove(tmp); err = tr("无法打开源文件", "Cannot open source file"); return false; }
 
         std::vector<char> buf(64 * 1024);
         uint64_t processed = 0;
@@ -335,14 +350,14 @@ namespace dec {
         out.write((const char*)mac.data(), kMacLen);
 
         out.flush();
-        if (!out) { out.close(); fs::remove(tmp); err = "写入失败"; return false; }
+        if (!out) { out.close(); fs::remove(tmp); err = tr("写入失败", "Write failed"); return false; }
         out.close();
 
         fs::rename(tmp, dst, ec);
         if (ec) {
             fs::remove(dst, ec);
             fs::rename(tmp, dst, ec);
-            if (ec) { fs::remove(tmp); err = "无法写入目标文件: " + ec.message(); return false; }
+            if (ec) { fs::remove(tmp); err = tr("无法写入目标文件: ", "Cannot write target file: ") + ec.message(); return false; }
         }
         return true;
                      }
@@ -461,7 +476,7 @@ namespace dec {
                                               hblock.insert(hblock.end(), plain.begin(), plain.end());
 
                                               std::ifstream in(p, std::ios::binary);
-                                              if (!in) { err = "无法打开文件"; return false; }
+                                              if (!in) { err = tr("无法打开文件", "Cannot open file"); return false; }
 
                                               in.seekg(0, std::ios::end);
                                               uint64_t oldFileSize = in.tellg();
@@ -471,7 +486,7 @@ namespace dec {
                                               fs::path tmp = p;
                                               tmp += ".tmp";
                                               std::ofstream out(tmp, std::ios::binary);
-                                              if (!out) { err = "无法创建临时文件"; return false; }
+                                              if (!out) { err = tr("无法创建临时文件", "Cannot create temporary file"); return false; }
 
                                               uint8_t flags = kFlagHeaderEncrypted;
                                               if (h.hasPassword) flags |= kFlagHasPassword;
@@ -505,14 +520,14 @@ namespace dec {
                                               out.close();
                                               in.close();
 
-                                              if (!ok) { fs::remove(tmp); err = "写入失败"; return false; }
+                                              if (!ok) { fs::remove(tmp); err = tr("写入失败", "Write failed"); return false; }
 
                                               std::error_code ec;
                                               fs::rename(tmp, p, ec);
                                               if (ec) {
                                                   fs::remove(p, ec);
                                                   fs::rename(tmp, p, ec);
-                                                  if (ec) { fs::remove(tmp); err = "无法替换原文件"; return false; }
+                                                  if (ec) { fs::remove(tmp); err = tr("无法替换原文件", "Cannot replace original file"); return false; }
                                               }
                                               return true;
                                                              }

@@ -23,6 +23,8 @@ namespace fs = std::filesystem;
 
 namespace dec {
 
+    bool gUseZh = false;
+
     static std::string fmtTime(std::time_t t) {
         std::tm tm{};
         #ifdef _WIN32
