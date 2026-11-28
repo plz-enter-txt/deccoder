@@ -298,7 +298,7 @@ static void printVersion()
     std::cout
     << " ____  _____ ____ \n"
     << "|  _ \\| ____/ ___|   Deccoder v" << kVersion << "\n"
-    << "| | | |  _||  |       Copyright (C) https://github.com/wahfffff9178\n"
+    << "| | | |  _||  |       Copyright (C) https://github.com/plz-enter-txt\n"
     << "| |_| | |__|  |___    This program may be freely distributed under the terms of the GNU General Public License\n"
     << "|____/|_____\\____|   本程序可以在 GNU 一般公众许可条款下自由分发\n"
     << "\n";

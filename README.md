@@ -35,7 +35,7 @@
 
 `.dec` 文件结构（小端序，当前版本 `v2`）：
 
- 
+```
 ┌──────────────────────────────────────────┐
 │ 魔数 "DECF"              (4 字节)         │
 │ 格式版本 (v2)            (2 字节)         │
@@ -55,7 +55,7 @@
 ├──────────────────────────────────────────┤
 │ HMAC-SHA256 完整性签名   (32 字节)        │
 └──────────────────────────────────────────┘
- 
+```
 
 头部 JSON 包含：`format`、`remarks`、`source_ip`、`original_name`、`original_size`、`original_mtime`、`encrypted_at`、`modified_at`、`cipher`、`kdf`、`body_nonce`、`check`。
 
