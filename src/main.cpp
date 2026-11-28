@@ -197,7 +197,7 @@ static std::string readLine(const std::string &prompt, bool hide = false)
     return buf;
 }
 
-static const char *kVersion = "2.2.4";
+static const char *kVersion = "2.2.5";
 static int doEncrypt(const std::vector<std::string> &pos, bool force, bool remove_source);
 static int doWizard();
 
