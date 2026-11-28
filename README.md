@@ -1,4 +1,4 @@
-# deccoder v2.2.5
+# deccoder v2.2.6
 
 中文 | [English](README.en.md)
 
